@@ -1,0 +1,1 @@
+"""Input pipeline: auth → retrieve → normalized metadata (later). This script is used to call other scripts"""
