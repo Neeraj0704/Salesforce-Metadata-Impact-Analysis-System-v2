@@ -19,9 +19,10 @@ _oauth_state: dict[str, Any] = {}
 
 @router.get("/salesforce")
 async def auth_salesforce() -> RedirectResponse:
-    """Redirect to Salesforce OAuth authorize URL."""
-    url, state = get_authorization_url()
+    """Redirect to Salesforce OAuth authorize URL (with PKCE)."""
+    url, state, code_verifier = get_authorization_url()
     _oauth_state["state"] = state
+    _oauth_state["code_verifier"] = code_verifier
     return RedirectResponse(url=url, status_code=302)
 
 
@@ -39,8 +40,12 @@ async def auth_callback(
     if saved and state != saved:
         logger.warning("State mismatch; possible CSRF")
         return RedirectResponse(url="/?error=invalid_state", status_code=302)
+    code_verifier = _oauth_state.get("code_verifier")
+    if not code_verifier:
+        logger.warning("Missing code_verifier; PKCE required")
+        return RedirectResponse(url="/?error=missing_code_verifier", status_code=302)
     try:
-        tokens = exchange_code_for_tokens(code)
+        tokens = exchange_code_for_tokens(code, code_verifier)
         zip_bytes = run_after_auth(tokens)
     except Exception as e:
         logger.exception("Auth or retrieve failed: %s", e)
