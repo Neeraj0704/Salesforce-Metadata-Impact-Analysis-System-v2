@@ -13,7 +13,11 @@ _SOQL_OBJECT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CUSTOM_OBJECT_DECLARATION_PATTERN = re.compile(
-    r"\b([A-Za-z][A-Za-z0-9_]*(?:__c|__mdt|__e))\s+[A-Za-z][A-Za-z0-9_]*\b"
+    r"\b([A-Za-z][A-Za-z0-9_]*(?:__c|__mdt|__e))\s+[a-z][A-Za-z0-9_]*\b"
+)
+_CUSTOM_OBJECT_CONSTRUCTION_PATTERN = re.compile(
+    r"\bnew\s+([A-Za-z][A-Za-z0-9_]*(?:__c|__mdt|__e))\b",
+    re.IGNORECASE,
 )
 _SCHEMA_OBJECT_PATTERN = re.compile(
     r"\bSchema\.SObjectType\.([A-Za-z][A-Za-z0-9_]*)\b",
@@ -41,6 +45,7 @@ def parse_apex_source(
 
     object_names = set(_SOQL_OBJECT_PATTERN.findall(source))
     object_names.update(_CUSTOM_OBJECT_DECLARATION_PATTERN.findall(source))
+    object_names.update(_CUSTOM_OBJECT_CONSTRUCTION_PATTERN.findall(source))
     object_names.update(_SCHEMA_OBJECT_PATTERN.findall(source))
 
     if is_trigger:

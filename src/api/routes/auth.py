@@ -60,6 +60,8 @@ async def auth_callback(
             f"&session_id={ingestion.session.session_id}"
             f"&files={ingestion.archive.file_count}"
             f"&components={ingestion.parsed.component_count}"
+            f"&graph_nodes={ingestion.graph.node_count}"
+            f"&graph_edges={ingestion.graph.edge_count}"
         ),
         status_code=302,
     )

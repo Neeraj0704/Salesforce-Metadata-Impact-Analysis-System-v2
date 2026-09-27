@@ -92,7 +92,8 @@ After Salesforce OAuth succeeds, the application now:
 3. Safely extracts the ZIP into `/workspace/metadata`.
 4. Parses supported metadata.
 5. Writes normalized output to `/workspace/analysis/parsed_metadata.json`.
-6. Redirects with the session ID and ingestion counts.
+6. Builds `/workspace/analysis/knowledge_graph.db`.
+7. Redirects with the session ID and ingestion counts.
 
 The parser currently supports Custom Objects and fields, Apex classes and
 triggers, Flows, and Permission Sets. It emits normalized components and directed
@@ -107,6 +108,35 @@ GET /sandbox/sessions/{session_id}/metadata
 Archive extraction rejects absolute and parent paths, symbolic links, duplicate
 paths, invalid ZIPs, oversized files, and archives that exceed configured file or
 expanded-size limits.
+
+### Knowledge graph and impact analysis
+
+Each parsed component becomes a graph node. Parser references become directed
+edges from the dependent component to the component it uses. References to
+metadata outside the retrieved package are retained as placeholder nodes.
+
+Graph counts are available at:
+
+```text
+GET /sandbox/sessions/{session_id}/graph
+```
+
+Analyze a proposed change with:
+
+```bash
+curl -X POST http://127.0.0.1:8000/sandbox/sessions/SESSION_ID/impact \
+  -H 'Content-Type: application/json' \
+  -d '{"component_key":"CustomField:Account.Status__c","change_type":"modify"}'
+```
+
+The impact engine traverses direct and indirect dependents and returns the path
+that caused each component to be included. Risk scoring is deterministic and
+explained using the change type, number of direct and indirect dependencies, and
+affected automation such as Flows and Apex triggers.
+
+The graph currently uses SQLite inside each sandbox workspace. This keeps local
+development self-contained while allowing the repository implementation to be
+replaced by Neo4j later without changing parser output or impact API contracts.
 
 Run the test suite with:
 

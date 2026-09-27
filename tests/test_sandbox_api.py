@@ -97,6 +97,33 @@ class SandboxApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["components"]), 7)
 
+    def test_returns_graph_summary_and_impact_report(self) -> None:
+        ingestion = ingest_metadata_archive(build_metadata_zip(), self.manager)
+        session_url = f"/sandbox/sessions/{ingestion.session.session_id}"
+
+        graph_response = self.client.get(f"{session_url}/graph")
+        impact_response = self.client.post(
+            f"{session_url}/impact",
+            json={
+                "component_key": "CustomField:Invoice__c.Status__c",
+                "change_type": "modify",
+            },
+        )
+
+        self.assertEqual(graph_response.status_code, 200)
+        self.assertGreaterEqual(graph_response.json()["node_count"], 8)
+        self.assertEqual(impact_response.status_code, 200)
+        self.assertGreaterEqual(impact_response.json()["direct_impact_count"], 3)
+
+    def test_impact_rejects_unknown_component(self) -> None:
+        ingestion = ingest_metadata_archive(build_metadata_zip(), self.manager)
+        response = self.client.post(
+            f"/sandbox/sessions/{ingestion.session.session_id}/impact",
+            json={"component_key": "CustomField:Missing.Field__c"},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Component not found in graph")
+
 
 if __name__ == "__main__":
     unittest.main()

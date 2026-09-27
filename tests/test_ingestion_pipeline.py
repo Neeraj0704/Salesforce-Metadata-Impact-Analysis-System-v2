@@ -47,6 +47,9 @@ class IngestionPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(result.parsed.component_count, 7)
             self.assertTrue((workspace / "metadata/unpackaged/package.xml").is_file())
             self.assertTrue(result.parsed_output_path.is_file())
+            self.assertTrue(result.graph_database_path.is_file())
+            self.assertGreaterEqual(result.graph.node_count, 8)
+            self.assertGreaterEqual(result.graph.edge_count, 10)
             manager.destroy_session(result.session.session_id)
 
 

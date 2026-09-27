@@ -6,6 +6,9 @@ from pathlib import Path
 
 from src.auth.models import TokenPayload
 from src.config.settings import get_settings
+from src.knowledge_graph.builder import build_knowledge_graph
+from src.knowledge_graph.models import GraphSummary
+from src.knowledge_graph.repository import SQLiteGraphRepository
 from src.metadata_api.client import retrieve
 from src.metadata_api.zip_extractor import ExtractedArchive
 from src.metadata_parser.models import ParseResult
@@ -23,6 +26,8 @@ class IngestionResult:
     archive: ExtractedArchive
     parsed: ParseResult
     parsed_output_path: Path
+    graph: GraphSummary
+    graph_database_path: Path
 
 
 def run_after_auth(tokens: TokenPayload) -> bytes:
@@ -52,6 +57,9 @@ def ingest_metadata_archive(
             archive.destination,
             output_path=parsed_output_path,
         )
+        graph_database_path = workspace / "analysis" / "knowledge_graph.db"
+        graph_repository = SQLiteGraphRepository(graph_database_path)
+        graph = graph_repository.replace_graph(build_knowledge_graph(parsed))
     except Exception:
         try:
             manager.destroy_session(session.session_id)
@@ -63,17 +71,19 @@ def ingest_metadata_archive(
         raise
 
     logger.info(
-        "Metadata session %s prepared: %s files, %s components, %s references",
+        "Metadata session %s prepared: %s files, %s graph nodes, %s graph edges",
         session.session_id,
         archive.file_count,
-        parsed.component_count,
-        parsed.reference_count,
+        graph.node_count,
+        graph.edge_count,
     )
     return IngestionResult(
         session=manager.get_session(session.session_id),
         archive=archive,
         parsed=parsed,
         parsed_output_path=parsed_output_path,
+        graph=graph,
+        graph_database_path=graph_database_path,
     )
 
 

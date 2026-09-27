@@ -11,7 +11,12 @@ from src.api.models.sandbox import (
     SandboxCommandResponse,
     SandboxDeleteResponse,
     SandboxSessionResponse,
+    ImpactAnalysisRequest,
 )
+from src.impact_analysis.analyzer import analyze_impact
+from src.impact_analysis.models import ImpactReport
+from src.knowledge_graph.models import GraphSummary
+from src.knowledge_graph.repository import GraphNodeNotFound, SQLiteGraphRepository
 from src.metadata_parser.models import ParseResult
 from src.sandbox.controller import SandboxError
 from src.sandbox.manager import SandboxSessionManager, SessionNotFound, SessionSnapshot
@@ -34,6 +39,11 @@ def _load_parse_result(output_path: str) -> ParseResult:
     return ParseResult.model_validate_json(
         Path(output_path).read_text(encoding="utf-8")
     )
+
+
+def _graph_repository(manager: SandboxSessionManager, session_id: str) -> SQLiteGraphRepository:
+    workspace = manager.get_workspace(session_id)
+    return SQLiteGraphRepository(workspace / "analysis" / "knowledge_graph.db")
 
 
 @router.post("", response_model=SandboxSessionResponse, status_code=status.HTTP_201_CREATED)
@@ -77,6 +87,45 @@ async def get_parsed_metadata(
         return await run_in_threadpool(_load_parse_result, str(output_path))
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=500, detail="Parsed metadata is unreadable") from exc
+
+
+@router.get("/{session_id}/graph", response_model=GraphSummary)
+async def get_graph_summary(
+    session_id: str,
+    manager: SandboxSessionManager = Depends(get_sandbox_manager),
+) -> GraphSummary:
+    """Return counts for a session's persisted knowledge graph."""
+    try:
+        repository = _graph_repository(manager, session_id)
+        return await run_in_threadpool(repository.summary)
+    except SessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Sandbox session not found") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Session has no knowledge graph") from exc
+
+
+@router.post("/{session_id}/impact", response_model=ImpactReport)
+async def run_impact_analysis(
+    session_id: str,
+    request: ImpactAnalysisRequest,
+    manager: SandboxSessionManager = Depends(get_sandbox_manager),
+) -> ImpactReport:
+    """Find dependent metadata and score a proposed component change."""
+    try:
+        repository = _graph_repository(manager, session_id)
+        return await run_in_threadpool(
+            analyze_impact,
+            repository,
+            request.component_key,
+            change_type=request.change_type,
+            max_depth=request.max_depth,
+        )
+    except SessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Sandbox session not found") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Session has no knowledge graph") from exc
+    except GraphNodeNotFound as exc:
+        raise HTTPException(status_code=404, detail="Component not found in graph") from exc
 
 
 @router.post("/{session_id}/commands", response_model=SandboxCommandResponse)
