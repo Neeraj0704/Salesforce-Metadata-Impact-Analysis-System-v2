@@ -7,8 +7,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from metadata_fixtures import build_metadata_zip
 from main import app
 from src.api.dependencies import get_sandbox_manager
+from src.pipeline.run import ingest_metadata_archive
 from src.sandbox.controller import CommandResult
 from src.sandbox.manager import SandboxSessionManager
 
@@ -78,6 +80,22 @@ class SandboxApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("not allowed", response.json()["detail"])
+
+    def test_metadata_is_missing_for_empty_session(self) -> None:
+        session_id = self.client.post("/sandbox/sessions").json()["session_id"]
+        response = self.client.get(f"/sandbox/sessions/{session_id}/metadata")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Session has no parsed metadata")
+
+    def test_returns_parsed_metadata_for_ingested_session(self) -> None:
+        ingestion = ingest_metadata_archive(build_metadata_zip(), self.manager)
+
+        response = self.client.get(
+            f"/sandbox/sessions/{ingestion.session.session_id}/metadata"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["components"]), 7)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 """HTTP endpoints for persistent Docker sandbox sessions."""
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
@@ -10,6 +12,7 @@ from src.api.models.sandbox import (
     SandboxDeleteResponse,
     SandboxSessionResponse,
 )
+from src.metadata_parser.models import ParseResult
 from src.sandbox.controller import SandboxError
 from src.sandbox.manager import SandboxSessionManager, SessionNotFound, SessionSnapshot
 from src.sandbox.policy import CommandRejected
@@ -24,6 +27,12 @@ def _session_response(snapshot: SessionSnapshot) -> SandboxSessionResponse:
         created_at=snapshot.created_at,
         last_activity_at=snapshot.last_activity_at,
         command_count=snapshot.command_count,
+    )
+
+
+def _load_parse_result(output_path: str) -> ParseResult:
+    return ParseResult.model_validate_json(
+        Path(output_path).read_text(encoding="utf-8")
     )
 
 
@@ -50,6 +59,24 @@ async def get_sandbox_session(
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Sandbox session not found") from exc
     return _session_response(snapshot)
+
+
+@router.get("/{session_id}/metadata", response_model=ParseResult)
+async def get_parsed_metadata(
+    session_id: str,
+    manager: SandboxSessionManager = Depends(get_sandbox_manager),
+) -> ParseResult:
+    """Return normalized metadata produced during Salesforce ingestion."""
+    try:
+        output_path = manager.get_workspace(session_id) / "analysis/parsed_metadata.json"
+    except SessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Sandbox session not found") from exc
+    if not output_path.is_file():
+        raise HTTPException(status_code=404, detail="Session has no parsed metadata")
+    try:
+        return await run_in_threadpool(_load_parse_result, str(output_path))
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="Parsed metadata is unreadable") from exc
 
 
 @router.post("/{session_id}/commands", response_model=SandboxCommandResponse)

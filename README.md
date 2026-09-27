@@ -83,6 +83,31 @@ The default policy permits `cat`, `find`, `ls`, `pwd`, `python`, `python3`,
 `pytest`, and `rg`. It passes arguments directly without invoking a shell and
 limits each command to 60 seconds.
 
+### Metadata ingestion
+
+After Salesforce OAuth succeeds, the application now:
+
+1. Retrieves the Salesforce metadata ZIP.
+2. Creates one sandbox session.
+3. Safely extracts the ZIP into `/workspace/metadata`.
+4. Parses supported metadata.
+5. Writes normalized output to `/workspace/analysis/parsed_metadata.json`.
+6. Redirects with the session ID and ingestion counts.
+
+The parser currently supports Custom Objects and fields, Apex classes and
+triggers, Flows, and Permission Sets. It emits normalized components and directed
+references that can be loaded into a knowledge graph later.
+
+For an ingested session, normalized output is also available at:
+
+```text
+GET /sandbox/sessions/{session_id}/metadata
+```
+
+Archive extraction rejects absolute and parent paths, symbolic links, duplicate
+paths, invalid ZIPs, oversized files, and archives that exceed configured file or
+expanded-size limits.
+
 Run the test suite with:
 
 ```bash

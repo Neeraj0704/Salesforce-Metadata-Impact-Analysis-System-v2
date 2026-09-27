@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
+from src.metadata_api.zip_extractor import ExtractedArchive, extract_zip_to_directory
 from src.sandbox.controller import CommandResult, DockerSandbox, SandboxError
 from src.sandbox.policy import CommandPolicy
 
@@ -109,6 +110,25 @@ class SandboxSessionManager:
     def get_session(self, session_id: str) -> SessionSnapshot:
         """Return current session metadata."""
         return self._snapshot(self._get_session(session_id))
+
+    def import_metadata_archive(
+        self,
+        session_id: str,
+        zip_bytes: bytes,
+    ) -> ExtractedArchive:
+        """Extract a Salesforce ZIP into the session's shared workspace."""
+        session = self._get_session(session_id)
+        with session.lock:
+            result = extract_zip_to_directory(
+                zip_bytes,
+                session.sandbox.workspace / "metadata",
+            )
+            session.last_activity_at = self._clock()
+            return result
+
+    def get_workspace(self, session_id: str) -> Path:
+        """Return a session workspace for trusted application services."""
+        return self._get_session(session_id).sandbox.workspace
 
     def destroy_session(self, session_id: str) -> None:
         """Unregister and destroy a session."""
