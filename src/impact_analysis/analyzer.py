@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from src.impact_analysis.models import ChangeType, ImpactReport, ImpactedComponent
-from src.knowledge_graph.repository import SQLiteGraphRepository
+from src.knowledge_graph.repository import GraphRepository
 
 
 _CHANGE_BASE_SCORES: dict[str, int] = {"add": 5, "modify": 20, "delete": 35}
@@ -21,7 +21,7 @@ def _risk_level(score: int) -> str:
 
 
 def analyze_impact(
-    repository: SQLiteGraphRepository,
+    repository: GraphRepository,
     component_key: str,
     *,
     change_type: ChangeType = "modify",

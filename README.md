@@ -17,6 +17,18 @@ Build the image:
 docker build --tag salesforce-agent-sandbox:latest sandbox
 ```
 
+Start the local Neo4j knowledge graph service:
+
+```bash
+docker compose up -d neo4j
+```
+
+Neo4j Browser is available at `http://127.0.0.1:7474` and the application uses
+Bolt at `bolt://127.0.0.1:7687`. Local development defaults to the `neo4j` user
+and password `salesforce-impact-local`; set `NEO4J_LOCAL_PASSWORD` to override it.
+Existing `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD` values are used only
+when `NEO4J_MODE=remote` is explicitly selected.
+
 Use it from Python:
 
 ```python
@@ -92,7 +104,7 @@ After Salesforce OAuth succeeds, the application now:
 3. Safely extracts the ZIP into `/workspace/metadata`.
 4. Parses supported metadata.
 5. Writes normalized output to `/workspace/analysis/parsed_metadata.json`.
-6. Builds `/workspace/analysis/knowledge_graph.db`.
+6. Writes session-namespaced nodes and relationships to Neo4j.
 7. Redirects with the session ID and ingestion counts.
 
 The parser currently supports Custom Objects and fields, Apex classes and
@@ -134,9 +146,10 @@ that caused each component to be included. Risk scoring is deterministic and
 explained using the change type, number of direct and indirect dependencies, and
 affected automation such as Flows and Apex triggers.
 
-The graph currently uses SQLite inside each sandbox workspace. This keeps local
-development self-contained while allowing the repository implementation to be
-replaced by Neo4j later without changing parser output or impact API contracts.
+The production graph repository uses Neo4j. Every node and relationship is
+namespaced by sandbox session so concurrent users do not mix graph data. Ending a
+sandbox session deletes that session's nodes from Neo4j. A small SQLite adapter is
+retained only for fast, isolated unit tests.
 
 Run the test suite with:
 

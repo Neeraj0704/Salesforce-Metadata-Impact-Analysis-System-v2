@@ -3,9 +3,10 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from neo4j.exceptions import DriverError, Neo4jError
 from starlette.concurrency import run_in_threadpool
 
-from src.api.dependencies import get_sandbox_manager
+from src.api.dependencies import get_graph_repository_factory, get_sandbox_manager
 from src.api.models.sandbox import (
     SandboxCommandRequest,
     SandboxCommandResponse,
@@ -16,7 +17,8 @@ from src.api.models.sandbox import (
 from src.impact_analysis.analyzer import analyze_impact
 from src.impact_analysis.models import ImpactReport
 from src.knowledge_graph.models import GraphSummary
-from src.knowledge_graph.repository import GraphNodeNotFound, SQLiteGraphRepository
+from src.knowledge_graph.factory import GraphRepositoryFactory
+from src.knowledge_graph.repository import GraphNodeNotFound, GraphRepository
 from src.metadata_parser.models import ParseResult
 from src.sandbox.controller import SandboxError
 from src.sandbox.manager import SandboxSessionManager, SessionNotFound, SessionSnapshot
@@ -41,9 +43,13 @@ def _load_parse_result(output_path: str) -> ParseResult:
     )
 
 
-def _graph_repository(manager: SandboxSessionManager, session_id: str) -> SQLiteGraphRepository:
-    workspace = manager.get_workspace(session_id)
-    return SQLiteGraphRepository(workspace / "analysis" / "knowledge_graph.db")
+def _graph_repository(
+    manager: SandboxSessionManager,
+    factory: GraphRepositoryFactory,
+    session_id: str,
+) -> GraphRepository:
+    manager.get_session(session_id)
+    return factory(session_id)
 
 
 @router.post("", response_model=SandboxSessionResponse, status_code=status.HTTP_201_CREATED)
@@ -93,15 +99,23 @@ async def get_parsed_metadata(
 async def get_graph_summary(
     session_id: str,
     manager: SandboxSessionManager = Depends(get_sandbox_manager),
+    graph_repository_factory: GraphRepositoryFactory = Depends(
+        get_graph_repository_factory
+    ),
 ) -> GraphSummary:
     """Return counts for a session's persisted knowledge graph."""
     try:
-        repository = _graph_repository(manager, session_id)
-        return await run_in_threadpool(repository.summary)
+        repository = _graph_repository(manager, graph_repository_factory, session_id)
+        try:
+            return await run_in_threadpool(repository.summary)
+        finally:
+            repository.close()
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Sandbox session not found") from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Session has no knowledge graph") from exc
+    except (DriverError, Neo4jError) as exc:
+        raise HTTPException(status_code=503, detail="Neo4j is unavailable") from exc
 
 
 @router.post("/{session_id}/impact", response_model=ImpactReport)
@@ -109,23 +123,31 @@ async def run_impact_analysis(
     session_id: str,
     request: ImpactAnalysisRequest,
     manager: SandboxSessionManager = Depends(get_sandbox_manager),
+    graph_repository_factory: GraphRepositoryFactory = Depends(
+        get_graph_repository_factory
+    ),
 ) -> ImpactReport:
     """Find dependent metadata and score a proposed component change."""
     try:
-        repository = _graph_repository(manager, session_id)
-        return await run_in_threadpool(
-            analyze_impact,
-            repository,
-            request.component_key,
-            change_type=request.change_type,
-            max_depth=request.max_depth,
-        )
+        repository = _graph_repository(manager, graph_repository_factory, session_id)
+        try:
+            return await run_in_threadpool(
+                analyze_impact,
+                repository,
+                request.component_key,
+                change_type=request.change_type,
+                max_depth=request.max_depth,
+            )
+        finally:
+            repository.close()
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Sandbox session not found") from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Session has no knowledge graph") from exc
     except GraphNodeNotFound as exc:
         raise HTTPException(status_code=404, detail="Component not found in graph") from exc
+    except (DriverError, Neo4jError) as exc:
+        raise HTTPException(status_code=503, detail="Neo4j is unavailable") from exc
 
 
 @router.post("/{session_id}/commands", response_model=SandboxCommandResponse)

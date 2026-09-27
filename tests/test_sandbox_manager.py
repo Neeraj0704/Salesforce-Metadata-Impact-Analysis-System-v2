@@ -94,6 +94,23 @@ class SandboxSessionManagerTests(unittest.TestCase):
         self.assertTrue(self.sandboxes[second.session_id].destroyed)
         self.assertEqual(self.manager.active_session_count, 0)
 
+    def test_destroy_calls_external_session_cleanup(self) -> None:
+        cleaned: list[str] = []
+
+        def factory(session_id: str, workspace: Path) -> FakeSandbox:
+            return FakeSandbox(session_id, workspace)
+
+        manager = SandboxSessionManager(
+            workspace_root=Path(self.temporary_directory.name),
+            sandbox_factory=factory,
+            session_cleanup=cleaned.append,
+        )
+        session = manager.create_session()
+
+        manager.destroy_session(session.session_id)
+
+        self.assertEqual(cleaned, [session.session_id])
+
 
 if __name__ == "__main__":
     unittest.main()

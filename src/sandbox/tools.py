@@ -6,7 +6,7 @@ from typing import Any
 
 from src.impact_analysis.analyzer import analyze_impact
 from src.impact_analysis.models import ChangeType
-from src.knowledge_graph.repository import SQLiteGraphRepository
+from src.knowledge_graph.factory import GraphRepositoryFactory, create_graph_repository
 from src.sandbox.manager import SandboxSessionManager
 
 
@@ -78,9 +78,15 @@ AGENT_TOOLS = [RUN_COMMAND_TOOL, ANALYZE_IMPACT_TOOL]
 class SandboxToolAdapter:
     """Bind an agent tool call to one already-created sandbox session."""
 
-    def __init__(self, manager: SandboxSessionManager, session_id: str) -> None:
+    def __init__(
+        self,
+        manager: SandboxSessionManager,
+        session_id: str,
+        graph_repository_factory: GraphRepositoryFactory = create_graph_repository,
+    ) -> None:
         self.manager = manager
         self.session_id = session_id
+        self.graph_repository_factory = graph_repository_factory
 
     def run_sandbox_command(
         self,
@@ -108,14 +114,15 @@ class SandboxToolAdapter:
         change_type: ChangeType = "modify",
         max_depth: int = 5,
     ) -> dict[str, Any]:
-        workspace = self.manager.get_workspace(self.session_id)
-        repository = SQLiteGraphRepository(
-            workspace / "analysis" / "knowledge_graph.db"
-        )
-        report = analyze_impact(
-            repository,
-            component_key,
-            change_type=change_type,
-            max_depth=max_depth,
-        )
+        self.manager.get_session(self.session_id)
+        repository = self.graph_repository_factory(self.session_id)
+        try:
+            report = analyze_impact(
+                repository,
+                component_key,
+                change_type=change_type,
+                max_depth=max_depth,
+            )
+        finally:
+            repository.close()
         return report.model_dump(mode="json")

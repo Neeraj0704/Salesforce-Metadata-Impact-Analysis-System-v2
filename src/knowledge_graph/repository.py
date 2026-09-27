@@ -1,4 +1,4 @@
-"""SQLite persistence and traversal for a session knowledge graph."""
+"""Graph repository contract and lightweight SQLite test adapter."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import sqlite3
 from collections import Counter, deque
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from src.knowledge_graph.models import GraphEdge, GraphNode, GraphSummary, KnowledgeGraph
 
@@ -23,8 +24,30 @@ class TraversedNode:
     relationship: str
 
 
+class GraphRepository(Protocol):
+    """Storage contract used by ingestion and impact analysis."""
+
+    backend_name: str
+
+    def replace_graph(self, graph: KnowledgeGraph) -> GraphSummary: ...
+
+    def summary(self) -> GraphSummary: ...
+
+    def get_node(self, key: str) -> GraphNode: ...
+
+    def impacted_components(
+        self, key: str, *, max_depth: int = 5
+    ) -> list[TraversedNode]: ...
+
+    def clear_graph(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
 class SQLiteGraphRepository:
     """Store and query one session's graph in a portable SQLite database."""
+
+    backend_name = "sqlite"
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path.expanduser().resolve()
@@ -100,6 +123,18 @@ class SQLiteGraphRepository:
                 ],
             )
         return self.summary()
+
+    def clear_graph(self) -> None:
+        """Delete every node and edge from the local test graph."""
+        if not self.database_path.exists():
+            return
+        with self._connect() as connection:
+            connection.execute("DELETE FROM edges")
+            connection.execute("DELETE FROM nodes")
+
+    def close(self) -> None:
+        """SQLite connections are scoped to individual method calls."""
+        return None
 
     def summary(self) -> GraphSummary:
         """Return graph counts grouped by node and relationship type."""

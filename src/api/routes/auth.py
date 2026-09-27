@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from src.api.dependencies import get_sandbox_manager
+from src.api.dependencies import get_graph_repository_factory, get_sandbox_manager
 from src.auth.oauth import exchange_code_for_tokens, get_authorization_url
 from src.pipeline.run import run_ingestion_after_auth
+from src.knowledge_graph.factory import GraphRepositoryFactory
 from src.sandbox.manager import SandboxSessionManager
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,9 @@ async def auth_callback(
     code: str | None = Query(None, alias="code", description="OAuth authorization code"),
     state: str | None = Query(None, alias="state", description="CSRF state token"),
     manager: SandboxSessionManager = Depends(get_sandbox_manager),
+    graph_repository_factory: GraphRepositoryFactory = Depends(
+        get_graph_repository_factory
+    ),
 ) -> RedirectResponse:
     """Exchange the OAuth code, retrieve metadata, and prepare its sandbox."""
     if not code:
@@ -50,7 +54,12 @@ async def auth_callback(
         return RedirectResponse(url="/?error=missing_code_verifier", status_code=302)
     try:
         tokens = await run_in_threadpool(exchange_code_for_tokens, code, code_verifier)
-        ingestion = await run_in_threadpool(run_ingestion_after_auth, tokens, manager)
+        ingestion = await run_in_threadpool(
+            run_ingestion_after_auth,
+            tokens,
+            manager,
+            graph_repository_factory,
+        )
     except Exception as e:
         logger.exception("Auth or retrieve failed: %s", e)
         return RedirectResponse(url=f"/?error=auth_failed", status_code=302)

@@ -4,4 +4,4 @@ pydantic-settings
 httpx
 fastapi
 uvicorn
-httpx
+neo4j>=6.0,<7

@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from metadata_fixtures import build_metadata_zip
+from src.knowledge_graph.repository import SQLiteGraphRepository
 from src.pipeline.run import ingest_metadata_archive
 from src.sandbox.controller import CommandResult
 from src.sandbox.manager import SandboxSessionManager
@@ -51,8 +52,16 @@ class SandboxToolAdapterTests(unittest.TestCase):
                 workspace_root=Path(temporary_directory),
                 sandbox_factory=FakeSandbox,
             )
-            ingestion = ingest_metadata_archive(build_metadata_zip(), manager)
-            adapter = SandboxToolAdapter(manager, ingestion.session.session_id)
+            graph_path = Path(temporary_directory) / "test-graph.db"
+            graph_factory = lambda session_id: SQLiteGraphRepository(graph_path)
+            ingestion = ingest_metadata_archive(
+                build_metadata_zip(), manager, graph_factory
+            )
+            adapter = SandboxToolAdapter(
+                manager,
+                ingestion.session.session_id,
+                graph_factory,
+            )
 
             result = adapter.analyze_metadata_impact(
                 component_key="CustomField:Invoice__c.Status__c",

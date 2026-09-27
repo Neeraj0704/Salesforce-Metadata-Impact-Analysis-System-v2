@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from metadata_fixtures import build_metadata_zip
+from src.knowledge_graph.repository import SQLiteGraphRepository
 from src.pipeline.run import ingest_metadata_archive
 from src.sandbox.controller import CommandResult
 from src.sandbox.manager import SandboxSessionManager
@@ -40,14 +41,20 @@ class IngestionPipelineTests(unittest.TestCase):
                 sandbox_factory=FakeSandbox,
             )
 
-            result = ingest_metadata_archive(build_metadata_zip(), manager)
+            graph_path = Path(temporary_directory) / "test-graph.db"
+            result = ingest_metadata_archive(
+                build_metadata_zip(),
+                manager,
+                lambda session_id: SQLiteGraphRepository(graph_path),
+            )
 
             workspace = manager.get_workspace(result.session.session_id)
             self.assertEqual(result.archive.file_count, 6)
             self.assertGreaterEqual(result.parsed.component_count, 7)
             self.assertTrue((workspace / "metadata/unpackaged/package.xml").is_file())
             self.assertTrue(result.parsed_output_path.is_file())
-            self.assertTrue(result.graph_database_path.is_file())
+            self.assertTrue(graph_path.is_file())
+            self.assertEqual(result.graph_backend, "sqlite")
             self.assertGreaterEqual(result.graph.node_count, 8)
             self.assertGreaterEqual(result.graph.edge_count, 10)
             manager.destroy_session(result.session.session_id)

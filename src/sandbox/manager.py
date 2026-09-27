@@ -42,6 +42,7 @@ class SessionSnapshot:
 
 SandboxFactory = Callable[[str, Path], DockerSandbox]
 Clock = Callable[[], datetime]
+SessionCleanup = Callable[[str], None]
 
 
 def _utc_now() -> datetime:
@@ -59,6 +60,7 @@ class SandboxSessionManager:
         policy: CommandPolicy | None = None,
         sandbox_factory: SandboxFactory | None = None,
         clock: Clock = _utc_now,
+        session_cleanup: SessionCleanup | None = None,
     ) -> None:
         if idle_timeout.total_seconds() <= 0:
             raise ValueError("idle_timeout must be greater than zero")
@@ -68,6 +70,7 @@ class SandboxSessionManager:
         self.policy = policy or CommandPolicy()
         self._sandbox_factory = sandbox_factory or self._default_sandbox_factory
         self._clock = clock
+        self._session_cleanup = session_cleanup
         self._sessions: dict[str, SandboxSession] = {}
         self._lock = threading.RLock()
 
@@ -136,8 +139,19 @@ class SandboxSessionManager:
             session = self._sessions.pop(session_id, None)
         if session is None:
             raise SessionNotFound(session_id)
+        errors: list[str] = []
         with session.lock:
-            session.sandbox.destroy()
+            try:
+                session.sandbox.destroy()
+            except Exception as exc:
+                errors.append(f"sandbox cleanup failed: {exc}")
+            if self._session_cleanup is not None:
+                try:
+                    self._session_cleanup(session_id)
+                except Exception as exc:
+                    errors.append(f"graph cleanup failed: {exc}")
+        if errors:
+            raise SandboxError("; ".join(errors))
 
     def cleanup_expired(self) -> list[str]:
         """Destroy sessions idle for at least the configured timeout."""

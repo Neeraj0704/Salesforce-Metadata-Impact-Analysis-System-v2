@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 
 from metadata_fixtures import build_metadata_zip
 from main import app
-from src.api.dependencies import get_sandbox_manager
+from src.api.dependencies import get_graph_repository_factory, get_sandbox_manager
+from src.knowledge_graph.repository import SQLiteGraphRepository
 from src.pipeline.run import ingest_metadata_archive
 from src.sandbox.controller import CommandResult
 from src.sandbox.manager import SandboxSessionManager
@@ -42,7 +43,16 @@ class SandboxApiTests(unittest.TestCase):
             idle_timeout=timedelta(minutes=30),
             sandbox_factory=FakeSandbox,
         )
+        self.graph_paths: dict[str, Path] = {}
+
+        def graph_factory(session_id: str) -> SQLiteGraphRepository:
+            path = Path(self.temporary_directory.name) / f"{session_id}.db"
+            self.graph_paths[session_id] = path
+            return SQLiteGraphRepository(path)
+
+        self.graph_factory = graph_factory
         app.dependency_overrides[get_sandbox_manager] = lambda: self.manager
+        app.dependency_overrides[get_graph_repository_factory] = lambda: self.graph_factory
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
@@ -88,7 +98,9 @@ class SandboxApiTests(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "Session has no parsed metadata")
 
     def test_returns_parsed_metadata_for_ingested_session(self) -> None:
-        ingestion = ingest_metadata_archive(build_metadata_zip(), self.manager)
+        ingestion = ingest_metadata_archive(
+            build_metadata_zip(), self.manager, self.graph_factory
+        )
 
         response = self.client.get(
             f"/sandbox/sessions/{ingestion.session.session_id}/metadata"
@@ -98,7 +110,9 @@ class SandboxApiTests(unittest.TestCase):
         self.assertEqual(len(response.json()["components"]), 7)
 
     def test_returns_graph_summary_and_impact_report(self) -> None:
-        ingestion = ingest_metadata_archive(build_metadata_zip(), self.manager)
+        ingestion = ingest_metadata_archive(
+            build_metadata_zip(), self.manager, self.graph_factory
+        )
         session_url = f"/sandbox/sessions/{ingestion.session.session_id}"
 
         graph_response = self.client.get(f"{session_url}/graph")
@@ -116,7 +130,9 @@ class SandboxApiTests(unittest.TestCase):
         self.assertGreaterEqual(impact_response.json()["direct_impact_count"], 3)
 
     def test_impact_rejects_unknown_component(self) -> None:
-        ingestion = ingest_metadata_archive(build_metadata_zip(), self.manager)
+        ingestion = ingest_metadata_archive(
+            build_metadata_zip(), self.manager, self.graph_factory
+        )
         response = self.client.post(
             f"/sandbox/sessions/{ingestion.session.session_id}/impact",
             json={"component_key": "CustomField:Missing.Field__c"},

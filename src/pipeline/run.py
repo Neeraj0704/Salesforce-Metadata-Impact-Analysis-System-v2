@@ -7,8 +7,8 @@ from pathlib import Path
 from src.auth.models import TokenPayload
 from src.config.settings import get_settings
 from src.knowledge_graph.builder import build_knowledge_graph
+from src.knowledge_graph.factory import GraphRepositoryFactory, create_graph_repository
 from src.knowledge_graph.models import GraphSummary
-from src.knowledge_graph.repository import SQLiteGraphRepository
 from src.metadata_api.client import retrieve
 from src.metadata_api.zip_extractor import ExtractedArchive
 from src.metadata_parser.models import ParseResult
@@ -27,7 +27,7 @@ class IngestionResult:
     parsed: ParseResult
     parsed_output_path: Path
     graph: GraphSummary
-    graph_database_path: Path
+    graph_backend: str
 
 
 def run_after_auth(tokens: TokenPayload) -> bytes:
@@ -46,6 +46,7 @@ def run_after_auth(tokens: TokenPayload) -> bytes:
 def ingest_metadata_archive(
     zip_bytes: bytes,
     manager: SandboxSessionManager,
+    graph_repository_factory: GraphRepositoryFactory = create_graph_repository,
 ) -> IngestionResult:
     """Create a sandbox session, import metadata, and save normalized JSON."""
     session = manager.create_session()
@@ -57,9 +58,12 @@ def ingest_metadata_archive(
             archive.destination,
             output_path=parsed_output_path,
         )
-        graph_database_path = workspace / "analysis" / "knowledge_graph.db"
-        graph_repository = SQLiteGraphRepository(graph_database_path)
-        graph = graph_repository.replace_graph(build_knowledge_graph(parsed))
+        graph_repository = graph_repository_factory(session.session_id)
+        try:
+            graph = graph_repository.replace_graph(build_knowledge_graph(parsed))
+            graph_backend = graph_repository.backend_name
+        finally:
+            graph_repository.close()
     except Exception:
         try:
             manager.destroy_session(session.session_id)
@@ -83,13 +87,18 @@ def ingest_metadata_archive(
         parsed=parsed,
         parsed_output_path=parsed_output_path,
         graph=graph,
-        graph_database_path=graph_database_path,
+        graph_backend=graph_backend,
     )
 
 
 def run_ingestion_after_auth(
     tokens: TokenPayload,
     manager: SandboxSessionManager,
+    graph_repository_factory: GraphRepositoryFactory = create_graph_repository,
 ) -> IngestionResult:
     """Retrieve Salesforce metadata and prepare its sandbox workspace."""
-    return ingest_metadata_archive(run_after_auth(tokens), manager)
+    return ingest_metadata_archive(
+        run_after_auth(tokens),
+        manager,
+        graph_repository_factory,
+    )
