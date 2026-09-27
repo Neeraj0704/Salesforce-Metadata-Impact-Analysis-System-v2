@@ -5,7 +5,8 @@ import logging
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-from src.api.routes import auth
+from src.api.lifecycle import app_lifespan
+from src.api.routes import auth, sandbox
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,8 +14,13 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-app = FastAPI(title="Salesforce Metadata Impact Analysis", version="0.1.0")
+app = FastAPI(
+    title="Salesforce Metadata Impact Analysis",
+    version="0.1.0",
+    lifespan=app_lifespan,
+)
 app.include_router(auth.router)
+app.include_router(sandbox.router)
 
 
 @app.get("/", response_class=HTMLResponse)
